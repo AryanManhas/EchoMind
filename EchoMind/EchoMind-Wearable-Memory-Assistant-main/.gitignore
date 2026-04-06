@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Flutter
+build/
+.dart_tool/
+.packages
+pubspec.lock
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Database
+*.db
+
+# Temporary files
+*.tmp
+*.wav
+*.m4a
+
+# Vosk model (large, can be downloaded)
+vosk-model-small-en-us-0.15/

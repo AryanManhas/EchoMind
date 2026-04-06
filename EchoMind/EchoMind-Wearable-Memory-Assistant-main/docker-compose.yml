@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend/data:/app/data
+    environment:
+      - ENABLE_LLM=False # Using Ollama
+      - LLM_PROVIDER=ollama
+      - OLLAMA_URL=http://host.docker.internal:11434/api/chat
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

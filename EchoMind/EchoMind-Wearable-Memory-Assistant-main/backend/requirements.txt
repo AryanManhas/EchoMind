@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+python-multipart
+spacy
+sentence-transformers
+numpy
+scikit-learn
+faster-whisper
+faiss-cpu
+tqdm
+websockets
+presidio-analyzer
+presidio-anonymizer
