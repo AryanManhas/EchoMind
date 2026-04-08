@@ -79,6 +79,7 @@ class NLPService:
                         "status": "pending" if parsed.get("is_reminder", False) else "captured",
                         "due_time": due_time,
                         "importance_score": 1.0 if parsed.get("priority") == "high" else 0.5,
+                        "nlp_engine": "llm_online"
                     }
                 except (json.JSONDecodeError, AttributeError):
                     pass # Fallback to local heuristics
@@ -158,6 +159,7 @@ class NLPService:
             "status": "pending" if reminder_meta["is_reminder"] else "captured",
             "due_time": due_time,
             "importance_score": reminder_meta["score"],
+            "nlp_engine": "spacy_offline"
         }
 
     @staticmethod

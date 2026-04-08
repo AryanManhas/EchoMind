@@ -16,6 +16,7 @@ class AudioService:
         self._vad_model = None
         self.get_speech_timestamps = None
         self._audio_buffer = {}  # session_id -> bytearray
+        self._ambient_noise_average = 0.002 # Default low noise floor
 
     def _load_models(self) -> None:
         if self._model is not None:
@@ -49,12 +50,19 @@ class AudioService:
             
             # --- Proximity Energy Gating (Battery & Diarization Optimization) ---
             rms_energy = float(np.sqrt(np.mean(audio_np**2)))
-            if rms_energy < 0.005:  # Ambient Drop Threshold
+            # Update background noise floor (only adjust on quieter chunks to avoid breaking on shouts)
+            if rms_energy < 0.015:
+                self._ambient_noise_average = (0.95 * self._ambient_noise_average) + (0.05 * rms_energy)
+                
+            ambient_drop = self._ambient_noise_average * 1.5
+            self_threshold = self._ambient_noise_average * 4.0
+            
+            if rms_energy < ambient_drop:
                 self._audio_buffer[session_id].clear()
                 return {"text": "", "final": False}
                 
-            # Volume-Proximity Heuristic
-            speaker_tag = "Self" if rms_energy > 0.03 else "External"
+            # Volume-Proximity Heuristic (Dynamic)
+            speaker_tag = "Self" if rms_energy > self_threshold else "External"
             
             # Apply Silero VAD to evaluate current buffer
             tensor_audio = torch.from_numpy(audio_np)
@@ -71,11 +79,11 @@ class AudioService:
             
             # 4800 frames = 0.3 seconds of silence signifies a pause
             has_paused = (total_frames - last_speech_end) > 4800
-            # 80000 frames = 5 seconds max buffer size to prevent infinite hold
-            hit_max_buffer = total_frames > 80000
+            # 56000 frames = 3.5 seconds max buffer size to prevent infinite hold (low latency)
+            hit_max_buffer = total_frames > 56000
             
             if has_paused or hit_max_buffer:
-                segments, _ = self._model.transcribe(audio_np, beam_size=5, task="translate")
+                segments, _ = self._model.transcribe(audio_np, beam_size=2, task="translate")
                 text = " ".join([segment.text for segment in segments]).strip()
                 
                 if hit_max_buffer and not has_paused:
@@ -94,11 +102,11 @@ class AudioService:
         if session_id in self._audio_buffer and len(self._audio_buffer[session_id]) > 0:
             self._load_models()
             audio_np = np.frombuffer(self._audio_buffer[session_id], dtype=np.int16).astype(np.float32) / 32768.0
-            segments, _ = self._model.transcribe(audio_np, beam_size=5, task="translate")
+            segments, _ = self._model.transcribe(audio_np, beam_size=2, task="translate")
             text = " ".join([segment.text for segment in segments]).strip()
             
             rms_energy = float(np.sqrt(np.mean(audio_np**2)))
-            speaker_tag = "Self" if rms_energy > 0.03 else "External"
+            speaker_tag = "Self" if rms_energy > (self._ambient_noise_average * 4.0) else "External"
             
             del self._audio_buffer[session_id]
             if text:
@@ -114,10 +122,10 @@ class AudioService:
 
         audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
         
-        segments, _ = self._model.transcribe(audio_np, beam_size=5, task="translate")
+        segments, _ = self._model.transcribe(audio_np, beam_size=2, task="translate")
         text = " ".join([segment.text for segment in segments]).strip()
         
         rms_energy = float(np.sqrt(np.mean(audio_np**2)))
-        speaker_tag = "Self" if rms_energy > 0.03 else "External"
+        speaker_tag = "Self" if rms_energy > (self._ambient_noise_average * 4.0) else "External"
         
         return {"text": text, "chunks": [{"text": text, "final": True, "speaker": speaker_tag}], "speaker": speaker_tag}

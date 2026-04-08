@@ -92,15 +92,21 @@ async def add_memory(
         raise HTTPException(status_code=400, detail="Provide text or audio input")
 
     memory = nlp_service.extract_memory(text_input, llm_service)
+    
+    if memory.get("type", "general") == "general" and not memory.get("person") and not memory.get("time"):
+        return {"saved": False, "reason": "auto-filtered chit-chat", "engine": memory.get("nlp_engine")}
+        
     embedding = embedding_service.embed_text(memory["text"])
     memory_id = db_service.add_memory(memory, embedding)
     concise_response = nlp_service.to_concise_response(memory)
 
     return {
         "id": memory_id,
+        "saved": True,
         "memory": memory,
         "response": concise_response,
         "chunks": audio_chunks,
+        "engine": memory.get("nlp_engine")
     }
 
 @app.post("/search")
@@ -169,6 +175,18 @@ async def websocket_audio_stream(websocket: WebSocket):
                 memory = nlp_service.extract_memory(text, llm_service)
                 memory["session_id"] = session_id
                 memory["speaker"] = transcription.get("speaker", speaker)
+                
+                # Intelligent llm-filtered data protection (No wake word required)
+                if memory.get("type", "general") == "general" and not memory.get("person") and not memory.get("time"):
+                     await websocket.send_json({
+                         "transcription": text,
+                         "final": True,
+                         "saved": False,
+                         "reason": "auto-filtered chit-chat",
+                         "engine": memory.get("nlp_engine")
+                     })
+                     continue
+                     
                 embedding = embedding_service.embed_text(memory["text"])
                 memory_id = db_service.add_memory(memory, embedding)
                 
@@ -177,7 +195,8 @@ async def websocket_audio_stream(websocket: WebSocket):
                     "final": True,
                     "saved": True,
                     "id": memory_id,
-                    "response": nlp_service.to_concise_response(memory)
+                    "response": nlp_service.to_concise_response(memory),
+                    "engine": memory.get("nlp_engine")
                 })
             elif transcription:
                 await websocket.send_json({
@@ -211,6 +230,15 @@ async def ingest_audio_chunk(
         memory["session_id"] = session_id
         memory["chunk_index"] = chunk_index
         memory["speaker"] = transcription.get("speaker", speaker)
+
+        # Intelligent llm-filtered data protection (No wake word required)
+        if memory.get("type", "general") == "general" and not memory.get("person") and not memory.get("time"):
+            return {
+                "saved": False,
+                "reason": "auto-filtered chit-chat",
+                "engine": memory.get("nlp_engine"),
+                "transcript": text
+            }
 
         embedding = embedding_service.embed_text(memory["text"])
         memory_id = db_service.add_memory(memory, embedding)
