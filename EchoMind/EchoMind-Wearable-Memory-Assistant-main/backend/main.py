@@ -44,6 +44,10 @@ llm_service = LLMService(
     endpoint_url=Config.OLLAMA_URL,
 )
 
+@app.on_event("startup")
+async def load_faiss():
+    search_service.load_from_db(db_service)
+
 # Pydantic Models for requests
 class TextPayload(BaseModel):
     text: str
@@ -98,6 +102,11 @@ async def add_memory(
         
     embedding = embedding_service.embed_text(memory["text"])
     memory_id = db_service.add_memory(memory, embedding)
+    
+    memory["id"] = memory_id
+    memory["embedding"] = embedding
+    search_service.insert_vector(memory_id, memory)
+    
     concise_response = nlp_service.to_concise_response(memory)
 
     return {
@@ -190,6 +199,10 @@ async def websocket_audio_stream(websocket: WebSocket):
                 embedding = embedding_service.embed_text(memory["text"])
                 memory_id = db_service.add_memory(memory, embedding)
                 
+                memory["id"] = memory_id
+                memory["embedding"] = embedding
+                search_service.insert_vector(memory_id, memory)
+                
                 await websocket.send_json({
                     "transcription": text,
                     "final": True,
@@ -242,6 +255,11 @@ async def ingest_audio_chunk(
 
         embedding = embedding_service.embed_text(memory["text"])
         memory_id = db_service.add_memory(memory, embedding)
+        
+        memory["id"] = memory_id
+        memory["embedding"] = embedding
+        search_service.insert_vector(memory_id, memory)
+        
         response = nlp_service.to_concise_response(memory)
         return {
             "saved": True,

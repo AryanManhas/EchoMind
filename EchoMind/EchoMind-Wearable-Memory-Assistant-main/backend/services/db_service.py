@@ -14,6 +14,7 @@ class DBService:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
         return conn
 
     def _init_db(self) -> None:
@@ -56,6 +57,8 @@ class DBService:
 
     def add_memory(self, memory: dict[str, Any], embedding: list[float] | None) -> int:
         with self._connect() as conn:
+            import numpy as np
+            emb_blob = np.array(embedding, dtype=np.float32).tobytes() if embedding else None
             cursor = conn.execute(
                 """
                 INSERT INTO memories (
@@ -72,7 +75,7 @@ class DBService:
                     memory.get("priority"),
                     memory.get("due_time"),
                     memory.get("status", "captured"),
-                    json.dumps(embedding) if embedding else None,
+                    emb_blob,
                     datetime.utcnow().isoformat(),
                 ),
             )
@@ -81,25 +84,31 @@ class DBService:
 
     def get_all_memories(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM memories ORDER BY id DESC").fetchall()
+            rows = conn.execute("SELECT * FROM memories WHERE status != 'deleted' ORDER BY id DESC").fetchall()
         return [self._row_to_dict(r) for r in rows]
 
     def get_memories_with_embeddings(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM memories WHERE embedding IS NOT NULL ORDER BY id DESC"
+                "SELECT * FROM memories WHERE embedding IS NOT NULL AND status != 'deleted' ORDER BY id DESC"
             ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
     def get_memory_by_id(self, memory_id: int) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM memories WHERE id = ?",
+                "SELECT * FROM memories WHERE id = ? AND status != 'deleted'",
                 (memory_id,),
             ).fetchone()
         if not row:
             return None
         return self._row_to_dict(row)
+        
+    def delete_memory(self, memory_id: int) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute("UPDATE memories SET status = 'deleted' WHERE id = ?", (memory_id,))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def get_today_reminders(self) -> list[dict[str, Any]]:
         start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -145,5 +154,14 @@ class DBService:
         if "is_reminder" in data:
             data["is_reminder"] = bool(data["is_reminder"])
         if data.get("embedding"):
-            data["embedding"] = json.loads(data["embedding"])
+            # Safe Legacy Migration Check to support older string JSON databases
+            emb_data = data["embedding"]
+            if isinstance(emb_data, str):
+                try:
+                    data["embedding"] = json.loads(emb_data)
+                except json.JSONDecodeError:
+                    data["embedding"] = None
+            else:
+                import numpy as np
+                data["embedding"] = np.frombuffer(emb_data, dtype=np.float32).tolist()
         return data
