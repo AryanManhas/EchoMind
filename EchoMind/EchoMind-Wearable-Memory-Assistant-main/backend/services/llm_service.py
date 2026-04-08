@@ -31,6 +31,36 @@ class LLMService:
         fallback = self._fallback_answer(query, memories)
         return {"answer": fallback, "source": "fallback", "citations": citations}
 
+    def parse_nlp_to_json(self, text: str) -> str | None:
+        if not self.enabled:
+            return None
+            
+        prompt = (
+            "You are a robotic data extractor. Extract exactly the following JSON from the text, with NO other words.\n"
+            '{"type": "meeting|call|reminder|general", "person": "Name or null", "time": "Time string or null", '
+            '"is_reminder": true|false, "priority": "high|medium|low"}\n\n'
+            f"Text: '{text}'"
+        )
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "messages": [{"role": "user", "content": prompt}],
+            "format": "json"
+        }
+        try:
+            req = request.Request(
+                self.endpoint_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with request.urlopen(req, timeout=10) as response:  # noqa: S310
+                raw = response.read().decode("utf-8")
+            parsed = json.loads(raw)
+            return ((parsed.get("message") or {}).get("content") or "").strip() or None
+        except (error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+            return None
+
     def _ask_ollama(self, query: str, context_block: str) -> str | None:
         prompt = (
             "You are a memory assistant. Use ONLY provided memory context.\n"

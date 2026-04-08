@@ -91,7 +91,7 @@ async def add_memory(
     if not text_input:
         raise HTTPException(status_code=400, detail="Provide text or audio input")
 
-    memory = nlp_service.extract_memory(text_input)
+    memory = nlp_service.extract_memory(text_input, llm_service)
     embedding = embedding_service.embed_text(memory["text"])
     memory_id = db_service.add_memory(memory, embedding)
     concise_response = nlp_service.to_concise_response(memory)
@@ -166,9 +166,9 @@ async def websocket_audio_stream(websocket: WebSocket):
             transcription = audio_service.transcribe_audio_chunk(session_id, audio_data)
             if transcription and transcription["final"]:
                 text = transcription["text"]
-                memory = nlp_service.extract_memory(text)
+                memory = nlp_service.extract_memory(text, llm_service)
                 memory["session_id"] = session_id
-                memory["speaker"] = speaker
+                memory["speaker"] = transcription.get("speaker", speaker)
                 embedding = embedding_service.embed_text(memory["text"])
                 memory_id = db_service.add_memory(memory, embedding)
                 
@@ -207,10 +207,10 @@ async def ingest_audio_chunk(
         if not text:
             raise HTTPException(status_code=400, detail="could not transcribe audio")
 
-        memory = nlp_service.extract_memory(text)
+        memory = nlp_service.extract_memory(text, llm_service)
         memory["session_id"] = session_id
         memory["chunk_index"] = chunk_index
-        memory["speaker"] = speaker
+        memory["speaker"] = transcription.get("speaker", speaker)
 
         embedding = embedding_service.embed_text(memory["text"])
         memory_id = db_service.add_memory(memory, embedding)

@@ -9,8 +9,12 @@ class NLPService:
     ACTION_RULES: dict[str, str] = {
         "meet": "meeting",
         "meeting": "meeting",
+        "milna": "meeting",
         "call": "call",
+        "baat": "call",
         "send": "reminder",
+        "bhej": "reminder",
+        "yaad": "reminder",
     }
 
     def __init__(self) -> None:
@@ -53,8 +57,31 @@ class NLPService:
             except Exception:  # noqa: BLE001
                 return None
 
-    def extract_memory(self, text: str) -> dict[str, Any]:
+    def extract_memory(self, text: str, llm_service: Any = None) -> dict[str, Any]:
         text = self._redact_pii(text)
+        
+        if llm_service and getattr(llm_service, 'enabled', False):
+            import json
+            llm_result = llm_service.parse_nlp_to_json(text)
+            if llm_result:
+                try:
+                    parsed = json.loads(llm_result)
+                    time_val = parsed.get("time") if parsed.get("time") != "null" else None
+                    person_val = parsed.get("person") if parsed.get("person") != "null" else None
+                    due_time = self._infer_due_time_iso(time_val)
+                    return {
+                        "type": parsed.get("type", "general"),
+                        "person": person_val,
+                        "time": time_val,
+                        "text": text.strip(),
+                        "is_reminder": parsed.get("is_reminder", False),
+                        "priority": parsed.get("priority", "low"),
+                        "status": "pending" if parsed.get("is_reminder", False) else "captured",
+                        "due_time": due_time,
+                        "importance_score": 1.0 if parsed.get("priority") == "high" else 0.5,
+                    }
+                except (json.JSONDecodeError, AttributeError):
+                    pass # Fallback to local heuristics
         lowered = text.lower()
         mem_type = next(
             (mem_type for keyword, mem_type in self.ACTION_RULES.items() if keyword in lowered),
@@ -92,9 +119,9 @@ class NLPService:
 
         # fallback regex if spaCy model is unavailable or misses entities
         if not person:
-            person_match = re.search(r"\bwith\s+([A-Z][a-zA-Z]+)\b", text)
+            person_match = re.search(r"\b(?:with|saath)\s+([A-Z][a-zA-Z]+)\b", text, flags=re.IGNORECASE)
             if person_match:
-                person = person_match.group(1)
+                person = person_match.group(1).capitalize()
         if not person:
             # Handle imperative phrasing like "Meet Rahul tomorrow at 4 PM"
             person_match = re.search(
@@ -153,6 +180,12 @@ class NLPService:
             "send",
             "tomorrow",
             "today",
+            "yaad",
+            "zaroori",
+            "kal",
+            "aaj",
+            "bhulna",
+            "karna",
         ]
         score += sum(0.12 for kw in keywords if kw in lowered)
         if mem_type in {"meeting", "call", "reminder"}:
