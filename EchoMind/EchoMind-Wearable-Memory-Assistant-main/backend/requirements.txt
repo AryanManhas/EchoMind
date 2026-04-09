@@ -11,3 +11,4 @@ tqdm
 websockets
 presidio-analyzer
 presidio-anonymizer
+zeroconf

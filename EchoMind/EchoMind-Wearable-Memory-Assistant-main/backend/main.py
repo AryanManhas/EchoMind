@@ -19,21 +19,9 @@ from services.llm_service import LLMService
 from services.nlp_service import NLPService
 from services.search_service import SearchService
 
-app = FastAPI(title="EchoMind Industry-Grade API")
-
-# Setup CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Initialize Services
 db_service = DBService(Path(Config.DB_PATH))
 nlp_service = NLPService()
-# VOSK is kept here for initialization compatibility before we refactor audio_service
 audio_service = AudioService(Config.VOSK_MODEL_PATH)
 embedding_service = EmbeddingService(
     Config.EMBEDDING_MODEL, enabled=Config.ENABLE_EMBEDDINGS
@@ -46,12 +34,13 @@ llm_service = LLMService(
     endpoint_url=Config.OLLAMA_URL,
 )
 
-@app.on_event("startup")
-async def startup_event():
-    # Load search index
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
     search_service.load_from_db(db_service)
     
-    # Start mDNS Auto-Discovery Advertisement
     try:
         local_ip = get_local_ip()
         app.state.zeroconf = Zeroconf()
@@ -67,13 +56,28 @@ async def startup_event():
         app.state.zeroconf_info = info
         print(f"Service advertised via mDNS: {local_ip}:5000")
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Failed to start mDNS advertisement: {e}")
 
-@app.on_event("shutdown")
-def shutdown_event():
+    yield
+
+    # Shutdown logic
     if hasattr(app.state, 'zeroconf'):
         app.state.zeroconf.unregister_service(app.state.zeroconf_info)
         app.state.zeroconf.close()
+
+app = FastAPI(title="EchoMind Industry-Grade API", lifespan=lifespan)
+
+# Setup CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
