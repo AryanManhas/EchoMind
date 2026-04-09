@@ -8,6 +8,8 @@ from fastapi import FastAPI, UploadFile, File, Form, Body, HTTPException, WebSoc
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
+import socket
+from zeroconf import ServiceInfo, Zeroconf
 
 from config import Config
 from services.audio_service import AudioService
@@ -45,8 +47,44 @@ llm_service = LLMService(
 )
 
 @app.on_event("startup")
-async def load_faiss():
+async def startup_event():
+    # Load search index
     search_service.load_from_db(db_service)
+    
+    # Start mDNS Auto-Discovery Advertisement
+    try:
+        local_ip = get_local_ip()
+        app.state.zeroconf = Zeroconf()
+        info = ServiceInfo(
+            "_echomind._tcp.local.",
+            "EchoMind Hardware._echomind._tcp.local.",
+            addresses=[socket.inet_aton(local_ip)],
+            port=5000,
+            properties={"version": "1.0.0", "path": "/"},
+            server="echomind.local.",
+        )
+        app.state.zeroconf.register_service(info)
+        app.state.zeroconf_info = info
+        print(f"Service advertised via mDNS: {local_ip}:5000")
+    except Exception as e:
+        print(f"Failed to start mDNS advertisement: {e}")
+
+@app.on_event("shutdown")
+def shutdown_event():
+    if hasattr(app.state, 'zeroconf'):
+        app.state.zeroconf.unregister_service(app.state.zeroconf_info)
+        app.state.zeroconf.close()
+
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = "127.0.0.1"
+    finally:
+        s.close()
+    return ip
 
 # Pydantic Models for requests
 class TextPayload(BaseModel):
@@ -170,9 +208,8 @@ def ask_assistant(payload: QueryPayload):
 
 # WebSockets for real-time streaming ingestion
 @app.websocket("/ws/audio_stream")
-async def websocket_audio_stream(websocket: WebSocket):
+async def websocket_audio_stream(websocket: WebSocket, session_id: str = "default-ws"):
     await websocket.accept()
-    session_id = "ws-session"
     speaker = "unknown"
     try:
         while True:

@@ -52,7 +52,13 @@
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>This app records audio memories for transcription.</string>
+	<string>This app records audio memories for transcription and background ambient monitoring.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>UISupportedInterfaceOrientations</key>

@@ -79,8 +79,8 @@ class AudioService:
             
             # 4800 frames = 0.3 seconds of silence signifies a pause
             has_paused = (total_frames - last_speech_end) > 4800
-            # 56000 frames = 3.5 seconds max buffer size to prevent infinite hold (low latency)
-            hit_max_buffer = total_frames > 56000
+            # 80000 frames = 5.0 seconds max buffer size to prevent infinite hold
+            hit_max_buffer = total_frames > 80000
             
             if has_paused or hit_max_buffer:
                 segments, _ = self._model.transcribe(audio_np, beam_size=2, task="translate")
